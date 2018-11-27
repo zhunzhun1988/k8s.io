@@ -1,0 +1,36 @@
+#!/usr/bin/env groovy
+
+import hudson.model.*
+import hudson.EnvVars
+import groovy.json.JsonSlurperClassic
+import groovy.json.JsonBuilder
+import groovy.json.JsonOutput
+import java.net.URL
+
+node ('kubernetes-1.11')
+{
+    stage('Checkout'){
+       checkout scm
+       addGitLabMRComment "Build Start at http://10.19.248.12:30101/job/kubernetes-1.11/${env.BUILD_ID}/"
+    }
+
+    stage('Test'){
+        sh "rm -rf _output /tmp/*"
+        sh "export KUBE_TIMEOUT='--timeout 300s' && make test"
+    }
+
+    stage('Build'){
+        sh "make"
+    }
+
+    stage('push'){
+        dir('_output/local/bin/linux/amd64') {
+         def tag = sh(returnStdout: true, script: "./kubelet --version | awk '{print \$2}'").trim()
+         sh "s3cmd put kube-apiserver kube-scheduler kube-rescheduler kube-controller-manager kubelet kube-proxy kubectl s3://kubernetes/1.11/${tag}/"
+        }
+    }
+
+    stage('Clean'){
+       deleteDir()
+    }
+}
