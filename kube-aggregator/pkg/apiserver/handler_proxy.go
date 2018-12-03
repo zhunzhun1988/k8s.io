@@ -18,6 +18,7 @@ package apiserver
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 	"sync/atomic"
@@ -161,8 +162,7 @@ func maybeWrapForConnectionUpgrades(restConfig *restclient.Config, rt http.Round
 		return nil, true, err
 	}
 	followRedirects := utilfeature.DefaultFeatureGate.Enabled(genericfeatures.StreamingProxyRedirects)
-	requireSameHostRedirects := utilfeature.DefaultFeatureGate.Enabled(genericfeatures.ValidateProxyRedirects)
-	upgradeRoundTripper := spdy.NewRoundTripper(tlsConfig, followRedirects, requireSameHostRedirects)
+	upgradeRoundTripper := spdy.NewRoundTripper(tlsConfig, followRedirects)
 	wrappedRT, err := restclient.HTTPWrappersForConfig(restConfig, upgradeRoundTripper)
 	if err != nil {
 		return nil, true, err
@@ -208,12 +208,15 @@ func (r *proxyHandler) updateAPIService(apiService *apiregistrationapi.APIServic
 		serviceNamespace: apiService.Spec.Service.Namespace,
 		serviceAvailable: apiregistrationapi.IsAPIServiceConditionTrue(apiService, apiregistrationapi.Available),
 	}
-	if r.proxyTransport != nil && r.proxyTransport.DialContext != nil {
-		newInfo.restConfig.Dial = r.proxyTransport.DialContext
-	}
 	newInfo.proxyRoundTripper, newInfo.transportBuildingError = restclient.TransportFor(newInfo.restConfig)
-	if newInfo.transportBuildingError != nil {
-		glog.Warning(newInfo.transportBuildingError.Error())
+	if newInfo.transportBuildingError == nil && r.proxyTransport != nil && r.proxyTransport.DialContext != nil {
+		switch transport := newInfo.proxyRoundTripper.(type) {
+		case *http.Transport:
+			transport.DialContext = r.proxyTransport.DialContext
+		default:
+			newInfo.transportBuildingError = fmt.Errorf("unable to set dialer for %s/%s as rest transport is of type %T", apiService.Spec.Service.Namespace, apiService.Spec.Service.Name, newInfo.proxyRoundTripper)
+			glog.Warning(newInfo.transportBuildingError.Error())
+		}
 	}
 	r.handlingInfo.Store(newInfo)
 }

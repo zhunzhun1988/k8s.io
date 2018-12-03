@@ -18,7 +18,6 @@ package validation
 
 import (
 	"fmt"
-	"k8s.io/apiserver/pkg/util/webhook"
 	"reflect"
 	"strings"
 
@@ -111,7 +110,13 @@ func ValidateCustomResourceDefinitionSpec(spec *apiextensions.CustomResourceDefi
 		allErrs = append(allErrs, field.Invalid(fldPath.Child("group"), spec.Group, "should be a domain with at least one dot"))
 	}
 
-	allErrs = append(allErrs, validateEnumStrings(fldPath.Child("scope"), string(spec.Scope), []string{string(apiextensions.ClusterScoped), string(apiextensions.NamespaceScoped)}, true)...)
+	switch spec.Scope {
+	case "":
+		allErrs = append(allErrs, field.Required(fldPath.Child("scope"), ""))
+	case apiextensions.ClusterScoped, apiextensions.NamespaceScoped:
+	default:
+		allErrs = append(allErrs, field.NotSupported(fldPath.Child("scope"), spec.Scope, []string{string(apiextensions.ClusterScoped), string(apiextensions.NamespaceScoped)}))
+	}
 
 	storageFlagCount := 0
 	versionsMap := map[string]bool{}
@@ -182,54 +187,6 @@ func ValidateCustomResourceDefinitionSpec(spec *apiextensions.CustomResourceDefi
 		}
 	}
 
-	allErrs = append(allErrs, ValidateCustomResourceConversion(spec.Conversion, fldPath.Child("conversion"))...)
-
-	return allErrs
-}
-
-func validateEnumStrings(fldPath *field.Path, value string, accepted []string, required bool) field.ErrorList {
-	if value == "" {
-		if required {
-			return field.ErrorList{field.Required(fldPath, "")}
-		}
-		return field.ErrorList{}
-	}
-	for _, a := range accepted {
-		if a == value {
-			return field.ErrorList{}
-		}
-	}
-	return field.ErrorList{field.NotSupported(fldPath, value, accepted)}
-}
-
-// ValidateCustomResourceConversion statically validates
-func ValidateCustomResourceConversion(conversion *apiextensions.CustomResourceConversion, fldPath *field.Path) field.ErrorList {
-	allErrs := field.ErrorList{}
-	if conversion == nil {
-		return allErrs
-	}
-	allErrs = append(allErrs, validateEnumStrings(fldPath.Child("strategy"), string(conversion.Strategy), []string{string(apiextensions.NoneConverter), string(apiextensions.WebhookConverter)}, true)...)
-	if conversion.Strategy == apiextensions.WebhookConverter {
-		if conversion.WebhookClientConfig == nil {
-			if utilfeature.DefaultFeatureGate.Enabled(apiextensionsfeatures.CustomResourceWebhookConversion) {
-				allErrs = append(allErrs, field.Required(fldPath.Child("webhookClientConfig"), "required when strategy is set to Webhook"))
-			} else {
-				allErrs = append(allErrs, field.Required(fldPath.Child("webhookClientConfig"), "required when strategy is set to Webhook, but not allowed because the CustomResourceWebhookConversion feature is disabled"))
-			}
-		} else {
-			cc := conversion.WebhookClientConfig
-			switch {
-			case (cc.URL == nil) == (cc.Service == nil):
-				allErrs = append(allErrs, field.Required(fldPath.Child("webhookClientConfig"), "exactly one of url or service is required"))
-			case cc.URL != nil:
-				allErrs = append(allErrs, webhook.ValidateWebhookURL(fldPath.Child("webhookClientConfig").Child("url"), *cc.URL, true)...)
-			case cc.Service != nil:
-				allErrs = append(allErrs, webhook.ValidateWebhookService(fldPath.Child("webhookClientConfig").Child("service"), cc.Service.Name, cc.Service.Namespace, cc.Service.Path)...)
-			}
-		}
-	} else if conversion.WebhookClientConfig != nil {
-		allErrs = append(allErrs, field.Forbidden(fldPath.Child("webhookClientConfig"), "should not be set when strategy is not set to Webhook"))
-	}
 	return allErrs
 }
 
@@ -298,7 +255,7 @@ func ValidateCustomResourceColumnDefinition(col *apiextensions.CustomResourceCol
 	allErrs := field.ErrorList{}
 
 	if len(col.Name) == 0 {
-		allErrs = append(allErrs, field.Required(fldPath.Child("name"), ""))
+		allErrs = append(allErrs, field.Required(fldPath.Child("header"), ""))
 	}
 
 	if len(col.Type) == 0 {
@@ -312,8 +269,8 @@ func ValidateCustomResourceColumnDefinition(col *apiextensions.CustomResourceCol
 	}
 
 	if len(col.JSONPath) == 0 {
-		allErrs = append(allErrs, field.Required(fldPath.Child("JSONPath"), ""))
-	} else if errs := validateSimpleJSONPath(col.JSONPath, fldPath.Child("JSONPath")); len(errs) > 0 {
+		allErrs = append(allErrs, field.Required(fldPath.Child("path"), ""))
+	} else if errs := validateSimpleJSONPath(col.JSONPath, fldPath.Child("path")); len(errs) > 0 {
 		allErrs = append(allErrs, errs...)
 	}
 
@@ -334,8 +291,7 @@ func ValidateCustomResourceDefinitionValidation(customResourceValidation *apiext
 	}
 
 	if schema := customResourceValidation.OpenAPIV3Schema; schema != nil {
-		// if the status subresource is enabled, only certain fields are allowed inside the root schema.
-		// these fields are chosen such that, if status is extracted as properties["status"], it's validation is not lost.
+		// if subresources are enabled, only "properties", "required" and "description" are allowed inside the root schema
 		if utilfeature.DefaultFeatureGate.Enabled(apiextensionsfeatures.CustomResourceSubresources) && statusSubresourceEnabled {
 			v := reflect.ValueOf(schema).Elem()
 			for i := 0; i < v.NumField(); i++ {
@@ -344,19 +300,8 @@ func ValidateCustomResourceDefinitionValidation(customResourceValidation *apiext
 					continue
 				}
 
-				fieldName := v.Type().Field(i).Name
-
-				// only "object" type is valid at root of the schema since validation schema for status is extracted as properties["status"]
-				if fieldName == "Type" {
-					if schema.Type != "object" {
-						allErrs = append(allErrs, field.Invalid(fldPath.Child("openAPIV3Schema.type"), schema.Type, fmt.Sprintf(`only "object" is allowed as the type at the root of the schema if the status subresource is enabled`)))
-						break
-					}
-					continue
-				}
-
-				if !allowedAtRootSchema(fieldName) {
-					allErrs = append(allErrs, field.Invalid(fldPath.Child("openAPIV3Schema"), *schema, fmt.Sprintf(`only %v fields are allowed at the root of the schema if the status subresource is enabled`, allowedFieldsAtRootSchema)))
+				if name := v.Type().Field(i).Name; name != "Properties" && name != "Required" && name != "Description" {
+					allErrs = append(allErrs, field.Invalid(fldPath.Child("openAPIV3Schema"), *schema, fmt.Sprintf(`must only have "properties", "required" or "description" at the root if the status subresource is enabled`)))
 					break
 				}
 			}
@@ -575,15 +520,4 @@ func validateSimpleJSONPath(s string, fldPath *field.Path) field.ErrorList {
 	}
 
 	return allErrs
-}
-
-var allowedFieldsAtRootSchema = []string{"Description", "Type", "Format", "Title", "Maximum", "ExclusiveMaximum", "Minimum", "ExclusiveMinimum", "MaxLength", "MinLength", "Pattern", "MaxItems", "MinItems", "UniqueItems", "MultipleOf", "Required", "Items", "Properties", "ExternalDocs", "Example"}
-
-func allowedAtRootSchema(field string) bool {
-	for _, v := range allowedFieldsAtRootSchema {
-		if field == v {
-			return true
-		}
-	}
-	return false
 }

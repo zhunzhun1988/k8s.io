@@ -19,7 +19,6 @@ package scheme
 import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 
 	"k8s.io/kube-aggregator/pkg/apis/apiregistration"
 	"k8s.io/kube-aggregator/pkg/apis/apiregistration/install"
@@ -42,7 +41,7 @@ func init() {
 
 // AddToScheme adds the types of this group into the given scheme.
 func AddToScheme(scheme *runtime.Scheme) {
-	utilruntime.Must(v1beta1.AddToScheme(scheme))
-	utilruntime.Must(v1.AddToScheme(scheme))
-	utilruntime.Must(apiregistration.AddToScheme(scheme))
+	v1beta1.AddToScheme(scheme)
+	v1.AddToScheme(scheme)
+	apiregistration.AddToScheme(scheme)
 }

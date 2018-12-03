@@ -10,5 +10,3 @@ reviewers:
 - deads2k
 - sttts
 - liggitt
-labels:
-- sig/api-machinery

@@ -20,9 +20,6 @@ import (
 	"context"
 	"fmt"
 
-	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
-	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/validation"
-	apiextensionsfeatures "k8s.io/apiextensions-apiserver/pkg/features"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
@@ -32,6 +29,10 @@ import (
 	"k8s.io/apiserver/pkg/storage"
 	"k8s.io/apiserver/pkg/storage/names"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
+
+	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
+	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/validation"
+	apiextensionsfeatures "k8s.io/apiextensions-apiserver/pkg/features"
 )
 
 // strategy implements behavior for CustomResources.
@@ -60,9 +61,6 @@ func (strategy) PrepareForCreate(ctx context.Context, obj runtime.Object) {
 	}
 	if !utilfeature.DefaultFeatureGate.Enabled(apiextensionsfeatures.CustomResourceSubresources) {
 		crd.Spec.Subresources = nil
-	}
-	if !utilfeature.DefaultFeatureGate.Enabled(apiextensionsfeatures.CustomResourceWebhookConversion) && crd.Spec.Conversion != nil {
-		crd.Spec.Conversion.WebhookClientConfig = nil
 	}
 
 	for _, v := range crd.Spec.Versions {
@@ -100,11 +98,6 @@ func (strategy) PrepareForUpdate(ctx context.Context, obj, old runtime.Object) {
 	if !utilfeature.DefaultFeatureGate.Enabled(apiextensionsfeatures.CustomResourceSubresources) {
 		newCRD.Spec.Subresources = nil
 		oldCRD.Spec.Subresources = nil
-	}
-	if !utilfeature.DefaultFeatureGate.Enabled(apiextensionsfeatures.CustomResourceWebhookConversion) && newCRD.Spec.Conversion != nil {
-		if oldCRD.Spec.Conversion == nil || newCRD.Spec.Conversion.WebhookClientConfig == nil {
-			newCRD.Spec.Conversion.WebhookClientConfig = nil
-		}
 	}
 
 	for _, v := range newCRD.Spec.Versions {
