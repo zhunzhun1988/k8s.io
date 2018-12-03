@@ -6,12 +6,11 @@ go_library(
         "doc.go",
         "fake.go",
     ],
-    importmap = "k8s.io/kubernetes/vendor/k8s.io/apiserver/plugin/pkg/audit/fake",
     importpath = "k8s.io/apiserver/plugin/pkg/audit/fake",
     visibility = ["//visibility:public"],
     deps = [
-        "//staging/src/k8s.io/apiserver/pkg/apis/audit:go_default_library",
-        "//staging/src/k8s.io/apiserver/pkg/audit:go_default_library",
+        "//vendor/k8s.io/apiserver/pkg/apis/audit:go_default_library",
+        "//vendor/k8s.io/apiserver/pkg/audit:go_default_library",
     ],
 )
 

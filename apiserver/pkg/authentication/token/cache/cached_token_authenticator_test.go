@@ -17,7 +17,6 @@ limitations under the License.
 package cache
 
 import (
-	"context"
 	"reflect"
 	"testing"
 	"time"
@@ -35,21 +34,21 @@ func TestCachedTokenAuthenticator(t *testing.T) {
 		resultOk    bool
 		resultErr   error
 	)
-	fakeAuth := authenticator.TokenFunc(func(ctx context.Context, token string) (*authenticator.Response, bool, error) {
+	fakeAuth := authenticator.TokenFunc(func(token string) (user.Info, bool, error) {
 		calledWithToken = append(calledWithToken, token)
-		return &authenticator.Response{User: resultUsers[token]}, resultOk, resultErr
+		return resultUsers[token], resultOk, resultErr
 	})
 	fakeClock := utilclock.NewFakeClock(time.Now())
 
 	a := newWithClock(fakeAuth, time.Minute, 0, fakeClock)
 
 	calledWithToken, resultUsers, resultOk, resultErr = []string{}, nil, false, nil
-	a.AuthenticateToken(context.Background(), "bad1")
-	a.AuthenticateToken(context.Background(), "bad2")
-	a.AuthenticateToken(context.Background(), "bad3")
-	a.AuthenticateToken(context.Background(), "bad1")
-	a.AuthenticateToken(context.Background(), "bad2")
-	a.AuthenticateToken(context.Background(), "bad3")
+	a.AuthenticateToken("bad1")
+	a.AuthenticateToken("bad2")
+	a.AuthenticateToken("bad3")
+	a.AuthenticateToken("bad1")
+	a.AuthenticateToken("bad2")
+	a.AuthenticateToken("bad3")
 	if !reflect.DeepEqual(calledWithToken, []string{"bad1", "bad2", "bad3", "bad1", "bad2", "bad3"}) {
 		t.Errorf("Expected failing calls to bypass cache, got %v", calledWithToken)
 	}
@@ -62,13 +61,13 @@ func TestCachedTokenAuthenticator(t *testing.T) {
 	resultUsers["usertoken3"] = &user.DefaultInfo{Name: "user3"}
 
 	// populate cache
-	if resp, ok, err := a.AuthenticateToken(context.Background(), "usertoken1"); err != nil || !ok || resp.User.GetName() != "user1" {
+	if user, ok, err := a.AuthenticateToken("usertoken1"); err != nil || !ok || user.GetName() != "user1" {
 		t.Errorf("Expected user1")
 	}
-	if resp, ok, err := a.AuthenticateToken(context.Background(), "usertoken2"); err != nil || !ok || resp.User.GetName() != "user2" {
+	if user, ok, err := a.AuthenticateToken("usertoken2"); err != nil || !ok || user.GetName() != "user2" {
 		t.Errorf("Expected user2")
 	}
-	if resp, ok, err := a.AuthenticateToken(context.Background(), "usertoken3"); err != nil || !ok || resp.User.GetName() != "user3" {
+	if user, ok, err := a.AuthenticateToken("usertoken3"); err != nil || !ok || user.GetName() != "user3" {
 		t.Errorf("Expected user3")
 	}
 	if !reflect.DeepEqual(calledWithToken, []string{"usertoken1", "usertoken2", "usertoken3"}) {
@@ -80,13 +79,13 @@ func TestCachedTokenAuthenticator(t *testing.T) {
 	resultUsers, resultOk, resultErr = nil, false, nil
 
 	// authenticate calls still succeed and backend is not hit
-	if resp, ok, err := a.AuthenticateToken(context.Background(), "usertoken1"); err != nil || !ok || resp.User.GetName() != "user1" {
+	if user, ok, err := a.AuthenticateToken("usertoken1"); err != nil || !ok || user.GetName() != "user1" {
 		t.Errorf("Expected user1")
 	}
-	if resp, ok, err := a.AuthenticateToken(context.Background(), "usertoken2"); err != nil || !ok || resp.User.GetName() != "user2" {
+	if user, ok, err := a.AuthenticateToken("usertoken2"); err != nil || !ok || user.GetName() != "user2" {
 		t.Errorf("Expected user2")
 	}
-	if resp, ok, err := a.AuthenticateToken(context.Background(), "usertoken3"); err != nil || !ok || resp.User.GetName() != "user3" {
+	if user, ok, err := a.AuthenticateToken("usertoken3"); err != nil || !ok || user.GetName() != "user3" {
 		t.Errorf("Expected user3")
 	}
 	if !reflect.DeepEqual(calledWithToken, []string{}) {
@@ -97,31 +96,10 @@ func TestCachedTokenAuthenticator(t *testing.T) {
 	fakeClock.Step(2 * time.Minute)
 
 	// backend is consulted again and fails
-	a.AuthenticateToken(context.Background(), "usertoken1")
-	a.AuthenticateToken(context.Background(), "usertoken2")
-	a.AuthenticateToken(context.Background(), "usertoken3")
+	a.AuthenticateToken("usertoken1")
+	a.AuthenticateToken("usertoken2")
+	a.AuthenticateToken("usertoken3")
 	if !reflect.DeepEqual(calledWithToken, []string{"usertoken1", "usertoken2", "usertoken3"}) {
 		t.Errorf("Expected token calls, got %v", calledWithToken)
-	}
-}
-
-func TestCachedTokenAuthenticatorWithAudiences(t *testing.T) {
-	resultUsers := make(map[string]user.Info)
-	fakeAuth := authenticator.TokenFunc(func(ctx context.Context, token string) (*authenticator.Response, bool, error) {
-		auds, _ := authenticator.AudiencesFrom(ctx)
-		return &authenticator.Response{User: resultUsers[auds[0]+token]}, true, nil
-	})
-	fakeClock := utilclock.NewFakeClock(time.Now())
-
-	a := newWithClock(fakeAuth, time.Minute, 0, fakeClock)
-
-	resultUsers["audAusertoken1"] = &user.DefaultInfo{Name: "user1"}
-	resultUsers["audBusertoken1"] = &user.DefaultInfo{Name: "user1-different"}
-
-	if u, ok, _ := a.AuthenticateToken(authenticator.WithAudiences(context.Background(), []string{"audA"}), "usertoken1"); !ok || u.User.GetName() != "user1" {
-		t.Errorf("Expected user1")
-	}
-	if u, ok, _ := a.AuthenticateToken(authenticator.WithAudiences(context.Background(), []string{"audB"}), "usertoken1"); !ok || u.User.GetName() != "user1-different" {
-		t.Errorf("Expected user1-different")
 	}
 }

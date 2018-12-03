@@ -586,11 +586,46 @@ func TestX509(t *testing.T) {
 			ExpectOK:       true,
 			ExpectErr:      false,
 		},
+		"empty dns": {
+			Opts:  getDefaultVerifyOptions(t),
+			Certs: getCerts(t, clientCNCert),
+			User:  DNSNameUserConversion,
+
+			ExpectOK:  false,
+			ExpectErr: false,
+		},
+		"dns": {
+			Opts:  getDefaultVerifyOptions(t),
+			Certs: getCerts(t, clientDNSCert),
+			User:  DNSNameUserConversion,
+
+			ExpectUserName: "client_dns.example.com",
+			ExpectOK:       true,
+			ExpectErr:      false,
+		},
+
+		"empty email": {
+			Opts:  getDefaultVerifyOptions(t),
+			Certs: getCerts(t, clientCNCert),
+			User:  EmailAddressUserConversion,
+
+			ExpectOK:  false,
+			ExpectErr: false,
+		},
+		"email": {
+			Opts:  getDefaultVerifyOptions(t),
+			Certs: getCerts(t, clientEmailCert),
+			User:  EmailAddressUserConversion,
+
+			ExpectUserName: "client_email@example.com",
+			ExpectOK:       true,
+			ExpectErr:      false,
+		},
 
 		"custom conversion error": {
 			Opts:  getDefaultVerifyOptions(t),
 			Certs: getCerts(t, clientCNCert),
-			User: UserConversionFunc(func(chain []*x509.Certificate) (*authenticator.Response, bool, error) {
+			User: UserConversionFunc(func(chain []*x509.Certificate) (user.Info, bool, error) {
 				return nil, false, errors.New("custom error")
 			}),
 
@@ -600,8 +635,8 @@ func TestX509(t *testing.T) {
 		"custom conversion success": {
 			Opts:  getDefaultVerifyOptions(t),
 			Certs: getCerts(t, clientCNCert),
-			User: UserConversionFunc(func(chain []*x509.Certificate) (*authenticator.Response, bool, error) {
-				return &authenticator.Response{User: &user.DefaultInfo{Name: "custom"}}, true, nil
+			User: UserConversionFunc(func(chain []*x509.Certificate) (user.Info, bool, error) {
+				return &user.DefaultInfo{Name: "custom"}, true, nil
 			}),
 
 			ExpectUserName: "custom",
@@ -659,7 +694,7 @@ func TestX509(t *testing.T) {
 
 		a := New(testCase.Opts, testCase.User)
 
-		resp, ok, err := a.AuthenticateRequest(req)
+		user, ok, err := a.AuthenticateRequest(req)
 
 		if testCase.ExpectErr && err == nil {
 			t.Errorf("%s: Expected error, got none", k)
@@ -676,11 +711,11 @@ func TestX509(t *testing.T) {
 		}
 
 		if testCase.ExpectOK {
-			if testCase.ExpectUserName != resp.User.GetName() {
-				t.Errorf("%s: Expected user.name=%v, got %v", k, testCase.ExpectUserName, resp.User.GetName())
+			if testCase.ExpectUserName != user.GetName() {
+				t.Errorf("%s: Expected user.name=%v, got %v", k, testCase.ExpectUserName, user.GetName())
 			}
 
-			groups := resp.User.GetGroups()
+			groups := user.GetGroups()
 			sort.Strings(testCase.ExpectGroups)
 			sort.Strings(groups)
 			if !reflect.DeepEqual(testCase.ExpectGroups, groups) {
@@ -807,14 +842,14 @@ func TestX509Verifier(t *testing.T) {
 		}
 
 		authCall := false
-		auth := authenticator.RequestFunc(func(req *http.Request) (*authenticator.Response, bool, error) {
+		auth := authenticator.RequestFunc(func(req *http.Request) (user.Info, bool, error) {
 			authCall = true
-			return &authenticator.Response{User: &user.DefaultInfo{Name: "innerauth"}}, true, nil
+			return &user.DefaultInfo{Name: "innerauth"}, true, nil
 		})
 
 		a := NewVerifier(testCase.Opts, auth, testCase.AllowedCNs)
 
-		resp, ok, err := a.AuthenticateRequest(req)
+		user, ok, err := a.AuthenticateRequest(req)
 
 		if testCase.ExpectErr && err == nil {
 			t.Errorf("%s: Expected error, got none", k)
@@ -835,8 +870,8 @@ func TestX509Verifier(t *testing.T) {
 				t.Errorf("%s: Expected inner auth called, wasn't", k)
 				continue
 			}
-			if "innerauth" != resp.User.GetName() {
-				t.Errorf("%s: Expected user.name=%v, got %v", k, "innerauth", resp.User.GetName())
+			if "innerauth" != user.GetName() {
+				t.Errorf("%s: Expected user.name=%v, got %v", k, "innerauth", user.GetName())
 				continue
 			}
 		} else {

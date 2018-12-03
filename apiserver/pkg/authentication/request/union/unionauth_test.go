@@ -23,7 +23,6 @@ import (
 	"strings"
 	"testing"
 
-	"k8s.io/apiserver/pkg/authentication/authenticator"
 	"k8s.io/apiserver/pkg/authentication/user"
 )
 
@@ -38,8 +37,8 @@ var (
 	user2 = &user.DefaultInfo{Name: "elegant_sheep", UID: "bravo"}
 )
 
-func (mock *mockAuthRequestHandler) AuthenticateRequest(req *http.Request) (*authenticator.Response, bool, error) {
-	return &authenticator.Response{User: mock.returnUser}, mock.isAuthenticated, mock.err
+func (mock *mockAuthRequestHandler) AuthenticateRequest(req *http.Request) (user.Info, bool, error) {
+	return mock.returnUser, mock.isAuthenticated, mock.err
 }
 
 func TestAuthenticateRequestSecondPasses(t *testing.T) {
@@ -48,15 +47,15 @@ func TestAuthenticateRequestSecondPasses(t *testing.T) {
 	authRequestHandler := New(handler1, handler2)
 	req, _ := http.NewRequest("GET", "http://example.org", nil)
 
-	resp, isAuthenticated, err := authRequestHandler.AuthenticateRequest(req)
+	authenticatedUser, isAuthenticated, err := authRequestHandler.AuthenticateRequest(req)
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
 	}
 	if !isAuthenticated {
 		t.Errorf("Unexpectedly unauthenticated: %v", isAuthenticated)
 	}
-	if !reflect.DeepEqual(user2, resp.User) {
-		t.Errorf("Expected %v, got %v", user2, resp.User)
+	if !reflect.DeepEqual(user2, authenticatedUser) {
+		t.Errorf("Expected %v, got %v", user2, authenticatedUser)
 	}
 }
 
@@ -66,15 +65,15 @@ func TestAuthenticateRequestFirstPasses(t *testing.T) {
 	authRequestHandler := New(handler1, handler2)
 	req, _ := http.NewRequest("GET", "http://example.org", nil)
 
-	resp, isAuthenticated, err := authRequestHandler.AuthenticateRequest(req)
+	authenticatedUser, isAuthenticated, err := authRequestHandler.AuthenticateRequest(req)
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
 	}
 	if !isAuthenticated {
 		t.Errorf("Unexpectedly unauthenticated: %v", isAuthenticated)
 	}
-	if !reflect.DeepEqual(user1, resp.User) {
-		t.Errorf("Expected %v, got %v", user2, resp.User)
+	if !reflect.DeepEqual(user1, authenticatedUser) {
+		t.Errorf("Expected %v, got %v", user1, authenticatedUser)
 	}
 }
 
@@ -97,15 +96,15 @@ func TestAuthenticateRequestNoAuthenticators(t *testing.T) {
 	authRequestHandler := New()
 	req, _ := http.NewRequest("GET", "http://example.org", nil)
 
-	resp, isAuthenticated, err := authRequestHandler.AuthenticateRequest(req)
+	authenticatedUser, isAuthenticated, err := authRequestHandler.AuthenticateRequest(req)
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
 	}
 	if isAuthenticated {
 		t.Errorf("Unexpectedly authenticated: %v", isAuthenticated)
 	}
-	if resp != nil {
-		t.Errorf("Unexpected authenticatedUser: %v", resp)
+	if authenticatedUser != nil {
+		t.Errorf("Unexpected authenticatedUser: %v", authenticatedUser)
 	}
 }
 

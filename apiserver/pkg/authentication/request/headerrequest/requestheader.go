@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
-	"net/url"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -105,7 +104,7 @@ func NewSecure(clientCA string, proxyClientNames []string, nameHeaders []string,
 	return x509request.NewVerifier(opts, headerAuthenticator, sets.NewString(proxyClientNames...)), nil
 }
 
-func (a *requestHeaderAuthRequestHandler) AuthenticateRequest(req *http.Request) (*authenticator.Response, bool, error) {
+func (a *requestHeaderAuthRequestHandler) AuthenticateRequest(req *http.Request) (user.Info, bool, error) {
 	name := headerValue(req.Header, a.nameHeaders)
 	if len(name) == 0 {
 		return nil, false, nil
@@ -126,12 +125,10 @@ func (a *requestHeaderAuthRequestHandler) AuthenticateRequest(req *http.Request)
 		}
 	}
 
-	return &authenticator.Response{
-		User: &user.DefaultInfo{
-			Name:   name,
-			Groups: groups,
-			Extra:  extra,
-		},
+	return &user.DefaultInfo{
+		Name:   name,
+		Groups: groups,
+		Extra:  extra,
 	}, true, nil
 }
 
@@ -163,14 +160,6 @@ func allHeaderValues(h http.Header, headerNames []string) []string {
 	return ret
 }
 
-func unescapeExtraKey(encodedKey string) string {
-	key, err := url.PathUnescape(encodedKey) // Decode %-encoded bytes.
-	if err != nil {
-		return encodedKey // Always record extra strings, even if malformed/unencoded.
-	}
-	return key
-}
-
 func newExtra(h http.Header, headerPrefixes []string) map[string][]string {
 	ret := map[string][]string{}
 
@@ -181,7 +170,7 @@ func newExtra(h http.Header, headerPrefixes []string) map[string][]string {
 				continue
 			}
 
-			extraKey := unescapeExtraKey(strings.ToLower(headerName[len(prefix):]))
+			extraKey := strings.ToLower(headerName[len(prefix):])
 			ret[extraKey] = append(ret[extraKey], vv...)
 		}
 	}

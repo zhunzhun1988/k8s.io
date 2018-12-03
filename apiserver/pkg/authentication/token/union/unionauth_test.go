@@ -17,13 +17,11 @@ limitations under the License.
 package union
 
 import (
-	"context"
 	"errors"
 	"reflect"
 	"strings"
 	"testing"
 
-	"k8s.io/apiserver/pkg/authentication/authenticator"
 	"k8s.io/apiserver/pkg/authentication/user"
 )
 
@@ -38,8 +36,8 @@ var (
 	user2 = &user.DefaultInfo{Name: "elegant_sheep", UID: "bravo"}
 )
 
-func (mock *mockAuthRequestHandler) AuthenticateToken(ctx context.Context, token string) (*authenticator.Response, bool, error) {
-	return &authenticator.Response{User: mock.returnUser}, mock.isAuthenticated, mock.err
+func (mock *mockAuthRequestHandler) AuthenticateToken(token string) (user.Info, bool, error) {
+	return mock.returnUser, mock.isAuthenticated, mock.err
 }
 
 func TestAuthenticateTokenSecondPasses(t *testing.T) {
@@ -47,15 +45,15 @@ func TestAuthenticateTokenSecondPasses(t *testing.T) {
 	handler2 := &mockAuthRequestHandler{returnUser: user2, isAuthenticated: true}
 	authRequestHandler := New(handler1, handler2)
 
-	resp, isAuthenticated, err := authRequestHandler.AuthenticateToken(context.Background(), "foo")
+	authenticatedUser, isAuthenticated, err := authRequestHandler.AuthenticateToken("foo")
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
 	}
 	if !isAuthenticated {
 		t.Errorf("Unexpectedly unauthenticated: %v", isAuthenticated)
 	}
-	if !reflect.DeepEqual(user2, resp.User) {
-		t.Errorf("Expected %v, got %v", user2, resp.User)
+	if !reflect.DeepEqual(user2, authenticatedUser) {
+		t.Errorf("Expected %v, got %v", user2, authenticatedUser)
 	}
 }
 
@@ -64,15 +62,15 @@ func TestAuthenticateTokenFirstPasses(t *testing.T) {
 	handler2 := &mockAuthRequestHandler{returnUser: user2}
 	authRequestHandler := New(handler1, handler2)
 
-	resp, isAuthenticated, err := authRequestHandler.AuthenticateToken(context.Background(), "foo")
+	authenticatedUser, isAuthenticated, err := authRequestHandler.AuthenticateToken("foo")
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
 	}
 	if !isAuthenticated {
 		t.Errorf("Unexpectedly unauthenticated: %v", isAuthenticated)
 	}
-	if !reflect.DeepEqual(user1, resp.User) {
-		t.Errorf("Expected %v, got %v", user1, resp.User)
+	if !reflect.DeepEqual(user1, authenticatedUser) {
+		t.Errorf("Expected %v, got %v", user1, authenticatedUser)
 	}
 }
 
@@ -81,7 +79,7 @@ func TestAuthenticateTokenSuppressUnnecessaryErrors(t *testing.T) {
 	handler2 := &mockAuthRequestHandler{isAuthenticated: true}
 	authRequestHandler := New(handler1, handler2)
 
-	_, isAuthenticated, err := authRequestHandler.AuthenticateToken(context.Background(), "foo")
+	_, isAuthenticated, err := authRequestHandler.AuthenticateToken("foo")
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
 	}
@@ -93,15 +91,15 @@ func TestAuthenticateTokenSuppressUnnecessaryErrors(t *testing.T) {
 func TestAuthenticateTokenNoAuthenticators(t *testing.T) {
 	authRequestHandler := New()
 
-	resp, isAuthenticated, err := authRequestHandler.AuthenticateToken(context.Background(), "foo")
+	authenticatedUser, isAuthenticated, err := authRequestHandler.AuthenticateToken("foo")
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
 	}
 	if isAuthenticated {
 		t.Errorf("Unexpectedly authenticated: %v", isAuthenticated)
 	}
-	if resp != nil {
-		t.Errorf("Unexpected authenticatedUser: %v", resp)
+	if authenticatedUser != nil {
+		t.Errorf("Unexpected authenticatedUser: %v", authenticatedUser)
 	}
 }
 
@@ -110,7 +108,7 @@ func TestAuthenticateTokenNonePass(t *testing.T) {
 	handler2 := &mockAuthRequestHandler{}
 	authRequestHandler := New(handler1, handler2)
 
-	_, isAuthenticated, err := authRequestHandler.AuthenticateToken(context.Background(), "foo")
+	_, isAuthenticated, err := authRequestHandler.AuthenticateToken("foo")
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
 	}
@@ -124,7 +122,7 @@ func TestAuthenticateTokenAdditiveErrors(t *testing.T) {
 	handler2 := &mockAuthRequestHandler{err: errors.New("second")}
 	authRequestHandler := New(handler1, handler2)
 
-	_, isAuthenticated, err := authRequestHandler.AuthenticateToken(context.Background(), "foo")
+	_, isAuthenticated, err := authRequestHandler.AuthenticateToken("foo")
 	if err == nil {
 		t.Errorf("Expected an error")
 	}
@@ -144,7 +142,7 @@ func TestAuthenticateTokenFailEarly(t *testing.T) {
 	handler2 := &mockAuthRequestHandler{err: errors.New("second")}
 	authRequestHandler := NewFailOnError(handler1, handler2)
 
-	_, isAuthenticated, err := authRequestHandler.AuthenticateToken(context.Background(), "foo")
+	_, isAuthenticated, err := authRequestHandler.AuthenticateToken("foo")
 	if err == nil {
 		t.Errorf("Expected an error")
 	}

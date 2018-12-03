@@ -32,8 +32,8 @@ import (
 	"k8s.io/apiserver/pkg/server"
 	"k8s.io/apiserver/pkg/server/healthz"
 	serverstorage "k8s.io/apiserver/pkg/server/storage"
+	"k8s.io/apiserver/pkg/storage/etcd3/preflight"
 	"k8s.io/apiserver/pkg/storage/storagebackend"
-	storagefactory "k8s.io/apiserver/pkg/storage/storagebackend/factory"
 )
 
 type EtcdOptions struct {
@@ -59,6 +59,8 @@ type EtcdOptions struct {
 }
 
 var storageTypes = sets.NewString(
+	storagebackend.StorageTypeUnset,
+	storagebackend.StorageTypeETCD2,
 	storagebackend.StorageTypeETCD3,
 )
 
@@ -85,8 +87,8 @@ func (s *EtcdOptions) Validate() []error {
 		allErrors = append(allErrors, fmt.Errorf("--etcd-servers must be specified"))
 	}
 
-	if s.StorageConfig.Type != storagebackend.StorageTypeUnset && !storageTypes.Has(s.StorageConfig.Type) {
-		allErrors = append(allErrors, fmt.Errorf("--storage-backend invalid, allowed values: %s. If not specified, it will default to 'etcd3'", strings.Join(storageTypes.List(), ", ")))
+	if !storageTypes.Has(s.StorageConfig.Type) {
+		allErrors = append(allErrors, fmt.Errorf("--storage-backend invalid, must be 'etcd3' or 'etcd2'. If not specified, it will default to 'etcd3'"))
 	}
 
 	for _, override := range s.EtcdServersOverrides {
@@ -141,11 +143,10 @@ func (s *EtcdOptions) AddFlags(fs *pflag.FlagSet) {
 		"have system defaults set by heuristics, others default to default-watch-cache-size")
 
 	fs.StringVar(&s.StorageConfig.Type, "storage-backend", s.StorageConfig.Type,
-		"The storage backend for persistence. Options: 'etcd3' (default).")
+		"The storage backend for persistence. Options: 'etcd3' (default), 'etcd2'.")
 
-	dummyCacheSize := 0
-	fs.IntVar(&dummyCacheSize, "deserialization-cache-size", 0, "Number of deserialized json objects to cache in memory.")
-	fs.MarkDeprecated("deserialization-cache-size", "the deserialization cache was dropped in 1.13 with support for etcd2")
+	fs.IntVar(&s.StorageConfig.DeserializationCacheSize, "deserialization-cache-size", s.StorageConfig.DeserializationCacheSize,
+		"Number of deserialized json objects to cache in memory.")
 
 	fs.StringSliceVar(&s.StorageConfig.ServerList, "etcd-servers", s.StorageConfig.ServerList,
 		"List of etcd servers to connect with (scheme://ip:port), comma separated.")
@@ -162,6 +163,10 @@ func (s *EtcdOptions) AddFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&s.StorageConfig.CAFile, "etcd-cafile", s.StorageConfig.CAFile,
 		"SSL Certificate Authority file used to secure etcd communication.")
 
+	fs.BoolVar(&s.StorageConfig.Quorum, "etcd-quorum-read", s.StorageConfig.Quorum,
+		"If true, enable quorum read. It defaults to true and is strongly recommended not setting to false.")
+	fs.MarkDeprecated("etcd-quorum-read", "This flag is deprecated and the ability to switch off quorum read will be removed in a future release.")
+
 	fs.StringVar(&s.EncryptionProviderConfigFilepath, "experimental-encryption-provider-config", s.EncryptionProviderConfigFilepath,
 		"The file containing configuration for encryption providers to be used for storing secrets in etcd")
 
@@ -176,30 +181,29 @@ func (s *EtcdOptions) ApplyTo(c *server.Config) error {
 	if s == nil {
 		return nil
 	}
-	if err := s.addEtcdHealthEndpoint(c); err != nil {
-		return err
-	}
+
+	s.addEtcdHealthEndpoint(c)
 	c.RESTOptionsGetter = &SimpleRestOptionsFactory{Options: *s}
 	return nil
 }
 
 func (s *EtcdOptions) ApplyWithStorageFactoryTo(factory serverstorage.StorageFactory, c *server.Config) error {
-	if err := s.addEtcdHealthEndpoint(c); err != nil {
-		return err
-	}
-	c.RESTOptionsGetter = &StorageFactoryRestOptionsFactory{Options: *s, StorageFactory: factory}
+	s.addEtcdHealthEndpoint(c)
+	c.RESTOptionsGetter = &storageFactoryRestOptionsFactory{Options: *s, StorageFactory: factory}
 	return nil
 }
 
-func (s *EtcdOptions) addEtcdHealthEndpoint(c *server.Config) error {
-	healthCheck, err := storagefactory.CreateHealthCheck(s.StorageConfig)
-	if err != nil {
-		return err
-	}
+func (s *EtcdOptions) addEtcdHealthEndpoint(c *server.Config) {
 	c.HealthzChecks = append(c.HealthzChecks, healthz.NamedCheck("etcd", func(r *http.Request) error {
-		return healthCheck()
+		done, err := preflight.EtcdConnection{ServerList: s.StorageConfig.ServerList}.CheckEtcdServers()
+		if !done {
+			return fmt.Errorf("etcd failed")
+		}
+		if err != nil {
+			return err
+		}
+		return nil
 	}))
-	return nil
 }
 
 type SimpleRestOptionsFactory struct {
@@ -229,12 +233,12 @@ func (f *SimpleRestOptionsFactory) GetRESTOptions(resource schema.GroupResource)
 	return ret, nil
 }
 
-type StorageFactoryRestOptionsFactory struct {
+type storageFactoryRestOptionsFactory struct {
 	Options        EtcdOptions
 	StorageFactory serverstorage.StorageFactory
 }
 
-func (f *StorageFactoryRestOptionsFactory) GetRESTOptions(resource schema.GroupResource) (generic.RESTOptions, error) {
+func (f *storageFactoryRestOptionsFactory) GetRESTOptions(resource schema.GroupResource) (generic.RESTOptions, error) {
 	storageConfig, err := f.StorageFactory.NewConfig(resource)
 	if err != nil {
 		return generic.RESTOptions{}, fmt.Errorf("unable to find storage destination for %v, due to %v", resource, err.Error())

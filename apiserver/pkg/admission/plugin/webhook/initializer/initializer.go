@@ -20,13 +20,13 @@ import (
 	"net/url"
 
 	"k8s.io/apiserver/pkg/admission"
-	"k8s.io/apiserver/pkg/util/webhook"
+	webhookconfig "k8s.io/apiserver/pkg/admission/plugin/webhook/config"
 )
 
 // WantsServiceResolver defines a function that accepts a ServiceResolver for
 // admission plugins that need to make calls to services.
 type WantsServiceResolver interface {
-	SetServiceResolver(webhook.ServiceResolver)
+	SetServiceResolver(webhookconfig.ServiceResolver)
 }
 
 // ServiceResolver knows how to convert a service reference into an actual
@@ -38,22 +38,22 @@ type ServiceResolver interface {
 // WantsAuthenticationInfoResolverWrapper defines a function that wraps the standard AuthenticationInfoResolver
 // to allow the apiserver to control what is returned as auth info
 type WantsAuthenticationInfoResolverWrapper interface {
-	SetAuthenticationInfoResolverWrapper(wrapper webhook.AuthenticationInfoResolverWrapper)
+	SetAuthenticationInfoResolverWrapper(webhookconfig.AuthenticationInfoResolverWrapper)
 	admission.InitializationValidator
 }
 
 // PluginInitializer is used for initialization of the webhook admission plugin.
 type PluginInitializer struct {
-	serviceResolver                   webhook.ServiceResolver
-	authenticationInfoResolverWrapper webhook.AuthenticationInfoResolverWrapper
+	serviceResolver                   webhookconfig.ServiceResolver
+	authenticationInfoResolverWrapper webhookconfig.AuthenticationInfoResolverWrapper
 }
 
 var _ admission.PluginInitializer = &PluginInitializer{}
 
 // NewPluginInitializer constructs new instance of PluginInitializer
 func NewPluginInitializer(
-	authenticationInfoResolverWrapper webhook.AuthenticationInfoResolverWrapper,
-	serviceResolver webhook.ServiceResolver,
+	authenticationInfoResolverWrapper webhookconfig.AuthenticationInfoResolverWrapper,
+	serviceResolver webhookconfig.ServiceResolver,
 ) *PluginInitializer {
 	return &PluginInitializer{
 		authenticationInfoResolverWrapper: authenticationInfoResolverWrapper,

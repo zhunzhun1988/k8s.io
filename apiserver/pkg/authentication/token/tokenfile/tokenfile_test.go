@@ -17,7 +17,6 @@ limitations under the License.
 package tokenfile
 
 import (
-	"context"
 	"io/ioutil"
 	"os"
 	"reflect"
@@ -86,13 +85,13 @@ token7,user7,uid7,"group1,group2",otherdata
 		},
 	}
 	for i, testCase := range testCases {
-		resp, ok, err := auth.AuthenticateToken(context.Background(), testCase.Token)
+		user, ok, err := auth.AuthenticateToken(testCase.Token)
 		if testCase.User == nil {
-			if resp != nil {
-				t.Errorf("%d: unexpected non-nil user %#v", i, resp.User)
+			if user != nil {
+				t.Errorf("%d: unexpected non-nil user %#v", i, user)
 			}
-		} else if !reflect.DeepEqual(testCase.User, resp.User) {
-			t.Errorf("%d: expected user %#v, got %#v", i, testCase.User, resp.User)
+		} else if !reflect.DeepEqual(testCase.User, user) {
+			t.Errorf("%d: expected user %#v, got %#v", i, testCase.User, user)
 		}
 
 		if testCase.Ok != ok {

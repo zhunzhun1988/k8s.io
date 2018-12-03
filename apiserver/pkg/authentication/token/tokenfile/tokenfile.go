@@ -17,7 +17,6 @@ limitations under the License.
 package tokenfile
 
 import (
-	"context"
 	"encoding/csv"
 	"fmt"
 	"io"
@@ -25,7 +24,6 @@ import (
 	"strings"
 
 	"github.com/golang/glog"
-	"k8s.io/apiserver/pkg/authentication/authenticator"
 	"k8s.io/apiserver/pkg/authentication/user"
 )
 
@@ -90,10 +88,10 @@ func NewCSV(path string) (*TokenAuthenticator, error) {
 	}, nil
 }
 
-func (a *TokenAuthenticator) AuthenticateToken(ctx context.Context, value string) (*authenticator.Response, bool, error) {
+func (a *TokenAuthenticator) AuthenticateToken(value string) (user.Info, bool, error) {
 	user, ok := a.tokens[value]
 	if !ok {
 		return nil, false, nil
 	}
-	return &authenticator.Response{User: user}, true, nil
+	return user, true, nil
 }

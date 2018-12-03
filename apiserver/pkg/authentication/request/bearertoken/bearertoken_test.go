@@ -17,7 +17,6 @@ limitations under the License.
 package bearertoken
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"reflect"
@@ -28,28 +27,28 @@ import (
 )
 
 func TestAuthenticateRequest(t *testing.T) {
-	auth := New(authenticator.TokenFunc(func(ctx context.Context, token string) (*authenticator.Response, bool, error) {
+	auth := New(authenticator.TokenFunc(func(token string) (user.Info, bool, error) {
 		if token != "token" {
 			t.Errorf("unexpected token: %s", token)
 		}
-		return &authenticator.Response{User: &user.DefaultInfo{Name: "user"}}, true, nil
+		return &user.DefaultInfo{Name: "user"}, true, nil
 	}))
-	resp, ok, err := auth.AuthenticateRequest(&http.Request{
+	user, ok, err := auth.AuthenticateRequest(&http.Request{
 		Header: http.Header{"Authorization": []string{"Bearer token"}},
 	})
-	if !ok || resp == nil || err != nil {
+	if !ok || user == nil || err != nil {
 		t.Errorf("expected valid user")
 	}
 }
 
 func TestAuthenticateRequestTokenInvalid(t *testing.T) {
-	auth := New(authenticator.TokenFunc(func(ctx context.Context, token string) (*authenticator.Response, bool, error) {
+	auth := New(authenticator.TokenFunc(func(token string) (user.Info, bool, error) {
 		return nil, false, nil
 	}))
-	resp, ok, err := auth.AuthenticateRequest(&http.Request{
+	user, ok, err := auth.AuthenticateRequest(&http.Request{
 		Header: http.Header{"Authorization": []string{"Bearer token"}},
 	})
-	if ok || resp != nil {
+	if ok || user != nil {
 		t.Errorf("expected not authenticated user")
 	}
 	if err != invalidToken {
@@ -59,13 +58,13 @@ func TestAuthenticateRequestTokenInvalid(t *testing.T) {
 
 func TestAuthenticateRequestTokenInvalidCustomError(t *testing.T) {
 	customError := errors.New("custom")
-	auth := New(authenticator.TokenFunc(func(ctx context.Context, token string) (*authenticator.Response, bool, error) {
+	auth := New(authenticator.TokenFunc(func(token string) (user.Info, bool, error) {
 		return nil, false, customError
 	}))
-	resp, ok, err := auth.AuthenticateRequest(&http.Request{
+	user, ok, err := auth.AuthenticateRequest(&http.Request{
 		Header: http.Header{"Authorization": []string{"Bearer token"}},
 	})
-	if ok || resp != nil {
+	if ok || user != nil {
 		t.Errorf("expected not authenticated user")
 	}
 	if err != customError {
@@ -74,13 +73,13 @@ func TestAuthenticateRequestTokenInvalidCustomError(t *testing.T) {
 }
 
 func TestAuthenticateRequestTokenError(t *testing.T) {
-	auth := New(authenticator.TokenFunc(func(ctx context.Context, token string) (*authenticator.Response, bool, error) {
+	auth := New(authenticator.TokenFunc(func(token string) (user.Info, bool, error) {
 		return nil, false, errors.New("error")
 	}))
-	resp, ok, err := auth.AuthenticateRequest(&http.Request{
+	user, ok, err := auth.AuthenticateRequest(&http.Request{
 		Header: http.Header{"Authorization": []string{"Bearer token"}},
 	})
-	if ok || resp != nil || err == nil {
+	if ok || user != nil || err == nil {
 		t.Errorf("expected error")
 	}
 }
@@ -95,7 +94,7 @@ func TestAuthenticateRequestBadValue(t *testing.T) {
 		{Req: &http.Request{Header: http.Header{"Authorization": []string{"Bearer: token"}}}},
 	}
 	for i, testCase := range testCases {
-		auth := New(authenticator.TokenFunc(func(ctx context.Context, token string) (*authenticator.Response, bool, error) {
+		auth := New(authenticator.TokenFunc(func(token string) (user.Info, bool, error) {
 			t.Errorf("authentication should not have been called")
 			return nil, false, nil
 		}))
@@ -145,10 +144,8 @@ func TestBearerToken(t *testing.T) {
 			ExpectedAuthorizationHeaders: []string{"Bearer "},
 		},
 		"valid bearer token removing header": {
-			AuthorizationHeaders: []string{"Bearer 123"},
-			TokenAuth: authenticator.TokenFunc(func(ctx context.Context, t string) (*authenticator.Response, bool, error) {
-				return &authenticator.Response{User: &user.DefaultInfo{Name: "myuser"}}, true, nil
-			}),
+			AuthorizationHeaders:         []string{"Bearer 123"},
+			TokenAuth:                    authenticator.TokenFunc(func(t string) (user.Info, bool, error) { return &user.DefaultInfo{Name: "myuser"}, true, nil }),
 			ExpectedUserName:             "myuser",
 			ExpectedOK:                   true,
 			ExpectedErr:                  false,
@@ -156,17 +153,15 @@ func TestBearerToken(t *testing.T) {
 		},
 		"invalid bearer token": {
 			AuthorizationHeaders:         []string{"Bearer 123"},
-			TokenAuth:                    authenticator.TokenFunc(func(ctx context.Context, t string) (*authenticator.Response, bool, error) { return nil, false, nil }),
+			TokenAuth:                    authenticator.TokenFunc(func(t string) (user.Info, bool, error) { return nil, false, nil }),
 			ExpectedUserName:             "",
 			ExpectedOK:                   false,
 			ExpectedErr:                  true,
 			ExpectedAuthorizationHeaders: []string{"Bearer 123"},
 		},
 		"error bearer token": {
-			AuthorizationHeaders: []string{"Bearer 123"},
-			TokenAuth: authenticator.TokenFunc(func(ctx context.Context, t string) (*authenticator.Response, bool, error) {
-				return nil, false, errors.New("error")
-			}),
+			AuthorizationHeaders:         []string{"Bearer 123"},
+			TokenAuth:                    authenticator.TokenFunc(func(t string) (user.Info, bool, error) { return nil, false, errors.New("error") }),
 			ExpectedUserName:             "",
 			ExpectedOK:                   false,
 			ExpectedErr:                  true,
@@ -181,7 +176,7 @@ func TestBearerToken(t *testing.T) {
 		}
 
 		bearerAuth := New(tc.TokenAuth)
-		resp, ok, err := bearerAuth.AuthenticateRequest(req)
+		u, ok, err := bearerAuth.AuthenticateRequest(req)
 		if tc.ExpectedErr != (err != nil) {
 			t.Errorf("%s: Expected err=%v, got %v", k, tc.ExpectedErr, err)
 			continue
@@ -190,8 +185,8 @@ func TestBearerToken(t *testing.T) {
 			t.Errorf("%s: Expected ok=%v, got %v", k, tc.ExpectedOK, ok)
 			continue
 		}
-		if ok && resp.User.GetName() != tc.ExpectedUserName {
-			t.Errorf("%s: Expected username=%v, got %v", k, tc.ExpectedUserName, resp.User.GetName())
+		if ok && u.GetName() != tc.ExpectedUserName {
+			t.Errorf("%s: Expected username=%v, got %v", k, tc.ExpectedUserName, u.GetName())
 			continue
 		}
 		if !reflect.DeepEqual(req.Header["Authorization"], tc.ExpectedAuthorizationHeaders) {

@@ -17,7 +17,6 @@ limitations under the License.
 package basicauth
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"testing"
@@ -36,11 +35,11 @@ type testPassword struct {
 	Err  error
 }
 
-func (t *testPassword) AuthenticatePassword(ctx context.Context, user, password string) (*authenticator.Response, bool, error) {
+func (t *testPassword) AuthenticatePassword(user, password string) (user.Info, bool, error) {
 	t.Called = true
 	t.Username = user
 	t.Password = password
-	return &authenticator.Response{User: t.User}, t.OK, t.Err
+	return t.User, t.OK, t.Err
 }
 
 func TestBasicAuth(t *testing.T) {
@@ -95,7 +94,7 @@ func TestBasicAuth(t *testing.T) {
 			req.SetBasicAuth(testCase.ExpectedUsername, testCase.ExpectedPassword)
 		}
 
-		resp, ok, err := auth.AuthenticateRequest(req)
+		user, ok, err := auth.AuthenticateRequest(req)
 
 		if testCase.ExpectedCalled != password.Called {
 			t.Errorf("%s: Expected called=%v, got %v", k, testCase.ExpectedCalled, password.Called)
@@ -118,8 +117,8 @@ func TestBasicAuth(t *testing.T) {
 			t.Errorf("%s: Expected ok=%v, got ok=%v", k, testCase.ExpectedOK, ok)
 			continue
 		}
-		if testCase.ExpectedUser != "" && testCase.ExpectedUser != resp.User.GetName() {
-			t.Errorf("%s: Expected user.GetName()=%v, got %v", k, testCase.ExpectedUser, resp.User.GetName())
+		if testCase.ExpectedUser != "" && testCase.ExpectedUser != user.GetName() {
+			t.Errorf("%s: Expected user.GetName()=%v, got %v", k, testCase.ExpectedUser, user.GetName())
 			continue
 		}
 	}
